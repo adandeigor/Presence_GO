@@ -1,0 +1,336 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model TokenVerification {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  token     String
+  expires   DateTime
+  createdAt DateTime @default(now())
+}
+
+model School {
+  id            String        @id @default(uuid())
+  name          String
+  level         Level
+  address       String
+  phone_number  String
+  email         String
+  school_admins School_Admin?
+  classes       Class[]
+  users         User[]
+  createdAt     DateTime      @default(now())
+}
+
+model Class {
+  id        String   @id @default(uuid())
+  name      String
+  level     Level
+  school    School   @relation(fields: [schoolId], references: [id])
+  schoolId  String
+  teacher   User?    @relation(fields: [teacherId], references: [id], name: "TeacherClasses")
+  teacherId String?
+  users     User[]
+  courses   Course[]
+  createdAt DateTime @default(now())
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  password      String?
+  image         String?
+  phone_number  String?
+  studentId     String?   @unique // Identifiant unique pour les étudiants
+  role          Role      @default(STUDENT)
+  level         Level?
+  class         Class?    @relation(fields: [classId], references: [id])
+  classId       String?
+  school        School?   @relation(fields: [schoolId], references: [id])
+  schoolId      String?
+
+  // Relations parent-enfant
+  parentOf ParentChild[] @relation("ParentRelation")
+  childOf  ParentChild[] @relation("ChildRelation")
+
+  accounts      Account[]
+  sessions      Session[]
+  Authenticator Authenticator[] // Optional for WebAuthn support
+
+  permissions          Permission[]   @relation("StudentPermission")
+  permissionsApproved  Permission[]   @relation("PermissionApprover")
+  attendances          Attendance[]   @relation("StudentAttendance")
+  validatedAttendances Attendance[]   @relation("AttendanceValidator")
+  notifications        Notification[]
+  teacherOf            Class[]        @relation("TeacherClasses")
+  courses              Course[]
+  admin                School_Admin[]
+  devices              Device[]       @relation("UserDevices")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model School_Admin {
+  id        String   @id @default(cuid())
+  school    School   @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  schoolId  String   @unique
+  admin     User     @relation(fields: [admin_id], references: [id], onDelete: Cascade)
+  admin_id  String   @unique
+  createdAt DateTime @default(now())
+}
+
+model Course {
+  id           String       @id @default(uuid())
+  name         String
+  class        Class        @relation(fields: [classId], references: [id], onDelete: Cascade)
+  classId      String
+  teacher      User?        @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  teacherId    String?
+  program      String?
+  schedules    Schedule[]
+  permissions  Permission[]
+  attendances  Attendance[]
+  createdAt    DateTime     @default(now())
+  scheduleType ScheduleType @default(REGULAR) // Pour différencier cours réguliers/TD/Bachotage
+  courseStatus CourseStatus @default(ACTIVE) // Pour gérer l'état du cours
+}
+
+model Schedule {
+  id          String     @id @default(uuid())
+  course      Course     @relation(fields: [courseId], references: [id])
+  courseId    String
+  startDate   DateTime
+  endDate     DateTime
+  dayOfWeek   DayOfWeek
+  room        String
+  isRecurrent Boolean    @default(true)
+  frequency   Frequency? // Pour les cours récurrents
+}
+
+model Attendance {
+  id               String              @id @default(uuid())
+  student          User                @relation(fields: [studentId], references: [id], name: "StudentAttendance")
+  studentId        String
+  course           Course              @relation(fields: [courseId], references: [id])
+  courseId         String
+  status           AttendanceStatus
+  timestamp        DateTime            @default(now())
+  validatedBy      User?              @relation(fields: [validatedById], references: [id], name: "AttendanceValidator")
+  validatedById    String?
+  validationMethod ValidationMethodType
+  deviceInfo       String?
+  createdAt        DateTime            @default(now())
+}
+
+model Permission {
+  id           String           @id @default(uuid())
+  student      User             @relation(fields: [studentId], references: [id], name: "StudentPermission")
+  studentId    String
+  course       Course           @relation(fields: [courseId], references: [id])
+  courseId     String
+  reason       String
+  approvedBy   User?            @relation(fields: [approvedById], references: [id], name: "PermissionApprover")
+  approvedById String?
+  status       PermissionStatus
+  createdAt    DateTime         @default(now())
+}
+
+model Notification {
+  id        String             @id @default(uuid())
+  user      User               @relation(fields: [userId], references: [id])
+  userId    String
+  message   String
+  type      NotificationType
+  status    NotificationStatus
+  metadata  Json?
+  createdAt DateTime           @default(now())
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+}
+
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+}
+
+// Optional for WebAuthn support
+model Authenticator {
+  credentialID         String  @unique
+  userId               String
+  providerAccountId    String
+  credentialPublicKey  String
+  counter              Int
+  credentialDeviceType String
+  credentialBackedUp   Boolean
+  transports           String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, credentialID])
+}
+
+// Nouvelle table pour la relation parent-enfant
+model ParentChild {
+  id        String   @id @default(cuid())
+  parent    User     @relation("ParentRelation", fields: [parentId], references: [id], onDelete: Cascade)
+  parentId  String
+  child     User     @relation("ChildRelation", fields: [childId], references: [id], onDelete: Cascade)
+  childId   String
+  createdAt DateTime @default(now())
+
+  @@unique([parentId, childId])
+  @@index([parentId])
+  @@index([childId])
+}
+
+model ValidationMethod {
+  id          String              @id @default(uuid())
+  name        String
+  type        ValidationMethodType
+  config      Json
+  description String?
+  status      String              @default("ACTIVE")
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+model Device {
+  id           String   @id @default(uuid())
+  userId       String
+  user         User     @relation("UserDevices", fields: [userId], references: [id])
+  type         String
+  name         String
+  identifier   String   @unique
+  isAuthorized Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  EXCUSE
+}
+
+enum ValidationMethodType {
+  QR
+  MANUAL
+  LOCATION
+}
+
+enum PermissionStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+enum NotificationType {
+  ABSENCE
+  ALERT
+  GENERAL
+}
+
+enum NotificationStatus {
+  SENT
+  PENDING
+  READ
+  UNREAD
+}
+
+enum DayOfWeek {
+  LUNDI
+  MARDI
+  MERCREDI
+  JEUDI
+  VENDREDI
+  SAMEDI
+  DIMANCHE
+}
+
+enum Role {
+  PARENT
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum Level {
+  PRIMAIRE
+  SECONDAIRE
+  UNIVERSITAIRE
+}
+
+enum Provider {
+  GOOGLE
+  MAGICLINK
+  EMAILANDPASSWORD
+}
+
+enum ScheduleType {
+  REGULAR
+  TD
+  BACHOTAGE
+  SPECIAL
+}
+
+enum CourseStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+  POSTPONED
+}
+
+enum Frequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
